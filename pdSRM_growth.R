@@ -1,49 +1,3 @@
-###              An nlme class for the Social Relations Model 
-###
-### Copyright 2016-2019  Andrew P Knight (knightap@wustl.edu)
-### http://apknight.org
-
-# To cite this code, please use:
-########
-#  Knight, A. P., & Humphrey, S. E. (2019). Dyadic data analysis. In S. E. Humphrey and J. M. LeBreton (Eds.), The Handbook of Multilevel Theory, Measurement, and Analysis, pp. 423-447. Washington, DC: American Psychological Association.
-########
-
-### Any errors? Please let me know. With many eyes, all bugs are shallow. 
-#
-#  This program is free software; you can redistribute it and/or modify
-#  it under the terms of the GNU General Public License as published by
-#  the Free Software Foundation; either version 2 of the License, or
-#  (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  A copy of the GNU General Public License is available at
-#  http://www.r-project.org/Licenses/
-#
-
-################################################
-# This code provides a new method to use with nlme.
-# The method enables the estimation of the Kenny's (1994)
-# social relations model using the approach described in 
-# Snijders & Kenny (1999). This dummy variable approach
-# requires placing constraints on the variance-covariance
-# matrix.  
-
-# Snijders, T. A. B., & Kenny, D. A. 1999. The social relations model for family data: A multilevel approach. Personal Relationships, 6: 471–486.
-
-# This code was created based on the existing methods
-# provided by Pinheiro & Bates in nlme for pdSymm and pdCompSymm
-
-# To run the SRM, you could use the following type of call:
-# o <- lme(dv ~ 1, random = list(group_id = pdBlocked(list(pdIdent(~1), pdSRM(~a1 + a2 + a3  + a4 + p1 + p2 + p3 + p4-1)))),correlation=corCompSymm(form=~1 | group_id/dyad_id), data=d, na.action=na.omit)
-# Where group_id is the grouping identifier; a1-a4 and p1-p4 are the dummies; dyad_id is a dyad marker. Note, following Snijders & Kenny, a1...an and p1...pn, where n = the maximum group size
-
-# Then, you could use the helper function to extract variance parameters and percentages: 
-# var.out <- srm.pct(o)
-################################################
 require(nlme)
 
 pdSRM <- function (value = numeric(0), form = NULL, nam = NULL, data = sys.frame(sys.parent())) 
@@ -65,11 +19,9 @@ pdConstruct.pdSRM <- function (object, value = numeric(0), form = formula(object
         return(val)
     }
     if (is.matrix(val)) {    
-    
     	# Read in a Cholesky factorization of the variance-covariance matrix
     	# Then, transform it to the original variance-covariance matrix
         mat.cov <- crossprod(val)
-        
         # Check to see if this is positive-definite
         
         # Build the original correlation matrix based on the variance-covariance matrix
@@ -77,26 +29,48 @@ pdConstruct.pdSRM <- function (object, value = numeric(0), form = formula(object
         mat.cor <- aux * t(mat.cov * aux)
         nc <- dim(mat.cov)[2] 
     
-        # Extract the variances from the original matrix        
-		variances <- diag(mat.cov)		
+    	# Constrain the intercept variance
+    	i.var <- mean(c(mat.cov[1,1], mat.cov[2,2]))
+    	i.sd <- sqrt(i.var)
+    	
+    	# Constrain the slope variance
+    	s.var <- mean(c(mat.cov[3,3], mat.cov[4,4]))
+    	s.sd <- sqrt(s.var)		
+    	
+    	# Constrain the within-individual i-s covariance
+    	is.wi.cor <- mean(c(mat.cor[1,3], mat.cor[2,4]))
+		is.wi.cov <- mean(c(mat.cov[1,3], mat.cov[2,4]))
+		
+		# Constrain the between-individual i-s covariance
+		is.bw.cor <- mean(c(mat.cor[1,4],mat.cor[2,3]))
+		is.bw.cov <- mean(c(mat.cov[1,4],mat.cov[2,3]))		
+		
+		# Get the intercept covariance
+		ii.bw.cor <- mat.cor[1,2]
+		ii.bw.cov <- mat.cov[1,2]		
+		
+		# Get the slope covariance
+		ss.bw.cor <- mat.cor[3,4]
+		ss.bw.cov <- mat.cov[3,4]		
+		
 
-		# calculate the actor and partner intercepts as the mean of the constituent parts
-		a.var <- mean(variances[1:(nc/2)])
-		a.sd <- sqrt(a.var)
-		p.var <- mean(variances[(nc/2+1):nc])		
-		p.sd <- sqrt(p.var)		
-				
-		# calculate the actor-partner covariance and correlation
-		ap.cor <- mean(mat.cor[cbind((1:(nc/2)),(nc/2+1):nc)])        
-		ap.cov <- mean(mat.cov[cbind((1:(nc/2)),(nc/2+1):nc)])        
+		# Create a new correlation matrix by replacing the 2 constrained covariances
+		new.mat.cor <- mat.cor
+		new.mat.cor[1,3] <- is.wi.cor
+		new.mat.cor[3,1] <- is.wi.cor		
+		new.mat.cor[2,4] <- is.wi.cor
+		new.mat.cor[4,2] <- is.wi.cor				
+		
+		new.mat.cor[1,4] <- is.bw.cor
+		new.mat.cor[4,1] <- is.bw.cor		
+		new.mat.cor[2,3] <- is.bw.cor
+		new.mat.cor[3,2] <- is.bw.cor						
+		
+		# Create the vector of parameters to send to other functions	
+					
+		parms <- c(i.sd, s.sd, is.wi.cor, is.bw.cor, ii.bw.cor, ss.bw.cor)	
+		
 
-		# Create a new correlation matrix using these parameters
-		new.mat.cor <- diag(nc)
-		new.mat.cor[cbind((1:(nc/2)),(nc/2+1):nc)] <- rep(ap.cor,(nc/2))  	    					
-		new.mat.cor[cbind((nc/2+1):nc,(1:(nc/2)))] <- rep(ap.cor,(nc/2))
-				
-		# Create the vector of parameters to send to other functions		
-		parms <- c(a.sd, p.sd, ap.cor)
 		attributes(parms) <- attributes(val)[names(attributes(val)) != "dim"]
         attr(parms, "ncol") <- nc
         class(parms) <- c("pdSRM", "pdMat")        
@@ -114,39 +88,86 @@ pdMatrix.pdSRM <- function (object, factor = FALSE)
         stop("cannot extract the matrix with uninitialized dimensions")
     }
 	parms <- as.vector(object)
-
+	print(parms)
+	# Run through the correlations and constrain to be within -1 and 1
+	for(i in 3:length(parms)) {
+		
+		if(parms[i] >= 1) {
+			parms[i] <- .99
+		} 
+		if(parms[i] <= -1) {
+			parms[i] <- -.99
+		}		
+	}
+	
 	# Recreate all the components
-	a.sd <- parms[1]
-	a.var <- a.sd^2
-	p.sd <- parms[2]
-	p.var <- p.sd^2
-	ap.cor <- parms[3]
-	ap.cov <- ap.cor*a.sd*p.sd
-
-	# Create the variance/covariance matrix
-	mat.cov <- diag(c(rep(a.var, (Ncol/2)), rep(p.var, (Ncol/2))))
-	mat.cov[cbind((1:(Ncol/2)),(Ncol/2+1):Ncol)] <- rep(ap.cov,(Ncol/2))  	    					
-	mat.cov[cbind((Ncol/2+1):Ncol,(1:(Ncol/2)))] <- rep(ap.cov,(Ncol/2))	
+	i.sd <- parms[1]
+	i.var <- i.sd^2
+	s.sd <- parms[2]
+	s.var <- s.sd^2
+	
+	is.wi.cor <- parms[3]
+	is.wi.cov <- is.wi.cor*i.sd*s.sd
+	
+	is.bw.cor <- parms[4]
+	is.bw.cov <- is.bw.cor*i.sd*s.sd
+	
+	ii.bw.cor <- parms[5]
+	ii.bw.cov <- ii.bw.cor*i.sd*i.sd
+	
+	ss.bw.cor <- parms[6]
+	ss.bw.cov <- ss.bw.cor*s.sd*s.sd	
+	
+	# Create a new covariance matrix using these parameters
+	
+	mat.cov <- diag(4)
+	mat.cov[1,1] <- i.var
+	mat.cov[2,2] <- i.var
+	mat.cov[3,3] <- s.var
+	mat.cov[4,4] <- s.var
+	
+	# this is the constrained within individual i-s covariance
+	mat.cov[cbind(1:2, 3:4)] <- is.wi.cov
+	mat.cov[cbind(3:4, 1:2)] <- is.wi.cov		
+	
+	# This is the constrained between individual i-s covariance
+	mat.cov[4,1] <- is.bw.cov
+	mat.cov[1,4] <- is.bw.cov		
+	mat.cov[3,2] <- is.bw.cov		
+	mat.cov[2,3] <- is.bw.cov						
+	
+	# This is the estimated bw individual intercept covariance
+	mat.cov[2,1] <- ii.bw.cov
+	mat.cov[1,2] <- ii.bw.cov		
+	
+	# This is the estimated bw individual slope covariance
+	mat.cov[4,3] <- ss.bw.cov
+	mat.cov[3,4] <- ss.bw.cov				
 
 	# Create a correlation matrix
 	aux <- 1/sqrt(diag(mat.cov))
-	mat.cor <- aux * t(mat.cov * aux)	
-
-	if(factor) {	
-		# Test for positive definite here
-		cholStatus <- try(u <- chol(mat.cov), silent = TRUE)
-		cholError <- ifelse(class(cholStatus) == "try-error", TRUE, FALSE)						
-		if(cholError) {
-			cat("matrix is not positive definite: executing work around...you should really check your results my friend!\n")
-			value <- upper.tri(mat.cov, diag=TRUE)
-		} else {
-			value <- chol(mat.cov)		
-		}
+	mat.cor <- aux * t(mat.cov * aux)
 	
+	print(mat.cor)
+		
+	if(factor) {
+		# Test for positive definite here
+#		cholStatus <- try(u <- chol(mat.cov), silent = TRUE)
+#		cholError <- ifelse(class(cholStatus) == "try-error", TRUE, FALSE)						
+#		if(cholError) {
+#			cat("matrix is not positive definite: executing work around...you should really check your results my friend!\n")
+#			value <- upper.tri(mat.cov, diag=TRUE)
+#		} else {
+#			value <- chol(mat.cov)		
+#		}
+	
+	    value <- upper.tri(mat.cov, diag=TRUE)
 		ld <- determinant(mat.cov, logarithm=TRUE)[1]	
 		attr(value, "logDet") <- ld$modulus
 	} else {
+		print("this will print value")
 		value <- mat.cov
+		print(value)		
 	}
 	dimnames(value) <- attr(object, "Dimnames")
 	value
@@ -161,9 +182,9 @@ coef.pdSRM <- function (object, unconstrained = TRUE, ...)
     if (is.null(Ncol <- attr(object, "ncol"))) {
       stop("cannot obtain constrained coefficients with uninitialized dimensions")
     }
-    val <- as.vector(object)
-    val <- c(val[1], val[2], val[3])
-    names(val) <- c("std. dev-a","std. dev-p", "corr.")
+    val <- as.vector(object)  
+    val <- c(val[1], val[2], val[3], val[4], val[5], val[6])
+    names(val) <- c("sd i", "sd s", "i-s wi", "i-s bw", "i-i bw", "s-s bw")
     val
   }
 }
@@ -179,16 +200,40 @@ corMatrix.pdSRM <- function (object, ...)
         stop("cannot extract the matrix with uninitialized dimensions")
     }
     obj <- as.vector(object)
-    aux <- c(obj[1], obj[2], obj[3])
+    print(obj)
+    aux <- c(obj[1], obj[2], obj[3], obj[4], obj[5], obj[6])
+
+    is.wi.cor <- aux[3]
+    is.bw.cor <- aux[4]
+    ii.bw.cor <- aux[5]
+    ss.bw.cor <- aux[6]
     
     # This builds the correlation matrix
-    value <- diag(Ncol)
-	value[cbind((1:(Ncol/2)),(Ncol/2+1):Ncol)] <- rep(aux[3],(Ncol/2))
-	value[cbind((Ncol/2+1):Ncol,(1:(Ncol/2)))] <- rep(aux[3],(Ncol/2))
+		# Create a new correlation matrix using these parameters
+
+		value <- diag(4)
+		
+		# this is the constrained within individual i-s covariance
+		value[cbind(1:2, 3:4)] <- is.wi.cor
+		value[cbind(3:4, 1:2)] <- is.wi.cor		
+		
+		# This is the constrained between individual i-s covariance
+		value[4,1] <- is.bw.cor
+		value[1,4] <- is.bw.cor		
+		value[3,2] <- is.bw.cor		
+		value[2,3] <- is.bw.cor						
+		
+		# This is the estimated bw individual intercept covariance
+		value[2,1] <- ii.bw.cor
+		value[1,2] <- ii.bw.cor		
+		
+		# This is the estimated bw individual slope covariance
+		value[4,3] <- ss.bw.cor
+		value[3,4] <- ss.bw.cor				
 	
 	# This builds the vector of SD values    
-	attr(value, "stdDev") <- c(rep(aux[1], (Ncol/2)), rep(aux[2], (Ncol/2)))
-	attr(value, "corr") <- aux[3]
+	attr(value, "stdDev") <- c(rep(aux[1], 2), rep(aux[2], 2))
+	attr(value, "corr") <- c(aux[3], aux[4], aux[5], aux[6])
     if (length(nm <- Names(object)) == 0) {
         nm <- paste("V", 1:Ncol, sep = "")
         dimnames(value) <- list(nm, nm)
@@ -198,7 +243,7 @@ corMatrix.pdSRM <- function (object, ...)
 }
 environment(corMatrix.pdSRM) <- asNamespace('nlme')
 
-summary.pdSRM <- function (object, structName = "Social Relations Model", ...) 
+summary.pdSRM <- function (object, structName = "Growth model for indistinguishable dyads", ...) 
 {   
     if (isInitialized(object)) {
     	# Build the correlation matrix
@@ -257,46 +302,6 @@ srm.pct <- function(object) {
 	output <- round(as.data.frame(list(variances.and.covariances=variance.parms, percents.and.correlations=variance.pcts)), 3)
 	return(output)
 }
-
-srm.pseudo.r2 <- function(null.model, predict.model) {
-
-	# Get the variances for null using VarCorr
-	variances.null <- as.numeric(VarCorr(null.model)[,1])
-	num.mem <- (length(variances.null)-2)/2
-	grp.var.null <- variances.null[1]
-	act.var.null <- variances.null[2]
-	part.var.null <- variances.null[num.mem+2]
-	dyd.var.null <- variances.null[length(variances.null)]
-	null.vals <- c(grp.var.null, act.var.null, part.var.null, dyd.var.null)
-
-	# Get the variances for predict using VarCorr
-	variances.predict <- as.numeric(VarCorr(predict.model)[,1])
-	num.mem <- (length(variances.predict)-2)/2
-	grp.var.predict <- variances.predict[1]
-	act.var.predict <- variances.predict[2]
-	part.var.predict <- variances.predict[num.mem+2]
-	dyd.var.predict <- variances.predict[length(variances.predict)]
-	predict.vals <- c(grp.var.predict, act.var.predict, part.var.predict, dyd.var.predict)	
-	
-	# put it together
-	tab <- data.frame(null.vals, predict.vals)
-	colnames(tab) <- c("null", "predict")
-	
-	# Calculate pseudo R sq
-	tab$pseudoR2 <- (tab$null-tab$predict)/tab$null
-	
-	# Return this
-	return(tab)
-}
-
-
-
-################################################
-# Here is a function for processing the output
-# of nlme run using the above method. 
-################################################
-
-
 
 ################################
 # This function creates dummy variables and a unique dyad identifier. The user inputs a 
@@ -454,30 +459,5 @@ srm.create.dummies <- function(group.id, act.id, part.id, d, include.self=FALSE,
 }
 
 
-################################
-# This function adds individual attributes to a dyad-level file, including that of the actor, the partner, and the difference and absolute difference at the dyad level. Must provide the variable names for identifiers and the variables that you want to include (along with te individual and dyad level data)
-################################
 
-srm.add.attributes <- function(ind.id, act.id, part.id, ind.atts, d.ind, d.dyd) {
 
-	d.act <- d.ind[,c(ind.id,ind.atts)]
-	colnames(d.act) <- c(act.id, paste("act",ind.atts, sep="_"))
-	
-	d.part <- d.ind[,c(ind.id, ind.atts)]	
-	colnames(d.part) <- c(part.id, paste("part",ind.atts, sep="_"))	
-	
-	d.dyd2 <- merge(d.dyd, d.act, by=c(act.id), all.x=T)
-	d.dyd3 <- merge(d.dyd2, d.part, by=c(part.id), all.x=T)
-	
-	# Create the difference variables
-	for(v in ind.atts) {
-	
-		n1 <- paste("dif", v, sep="_")
-		n2 <- paste("absdif", v, sep="_")
-		
-		d.dyd3[,n1] <- d.dyd3[,paste("act",v,sep="_")] - d.dyd3[,paste("part",v,sep="_")]
-		
-		d.dyd3[,n2] <- abs(d.dyd3[,n1]) 
-	}
-	return(d.dyd3)
-}
